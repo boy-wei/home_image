@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 
-export async function POST(req: Request, { params }: { params: { action: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ action: string }> }) {
   // Check the action before forwarding
-  const { action } = params;
+  const { action } = await params;
   if (!['launch', 'verify', 'consume'].includes(action)) {
     return NextResponse.json({ success: false, message: 'Invalid action' }, { status: 400 });
   }
