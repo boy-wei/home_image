@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Upload,
@@ -60,9 +60,32 @@ export default function Home() {
   const [imageTypes, setImageTypes] = useState<string[]>(["main"]);
   const [sceneImage, setSceneImage] = useState<string | null>(null);
   const [modelImage, setModelImage] = useState<string | null>(null);
+  const [saasConfig, setSaasConfig] = useState<{ userId: string; toolId: string; context: string; prompt: string[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sceneInputRef = useRef<HTMLInputElement>(null);
   const modelInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleMessage = async (e: MessageEvent) => {
+      if (e.data?.type === 'SAAS_INIT') {
+        const { userId, toolId, context, prompt } = e.data;
+        if (userId && userId !== "null" && userId !== "undefined") {
+          setSaasConfig({ userId, toolId, context, prompt });
+          try {
+            await fetch('/api/tool/launch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId, toolId })
+            });
+          } catch(err) {
+            console.error("Launch api failed", err);
+          }
+        }
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -145,6 +168,24 @@ export default function Home() {
 
     const isPremiumModel = genModel === "gemini-3-pro-image-preview";
 
+    if (saasConfig) {
+      try {
+        const verifyRes = await fetch('/api/tool/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: saasConfig.userId, toolId: saasConfig.toolId })
+        });
+        const verifyData = await verifyRes.json();
+        if (!verifyRes.ok || (!verifyData.success && !verifyData.valid)) {
+          setError(verifyData.message || "积分不足");
+          return;
+        }
+      } catch (err: any) {
+        setError("校验积分失败，请检查网络或配置");
+        return;
+      }
+    }
+
     setStep("GENERATING");
     setError(null);
 
@@ -161,7 +202,8 @@ export default function Home() {
           generationCount,
           imageTypes,
           sceneImage,
-          modelImage
+          modelImage,
+          saasConfig
         })
       });
 
@@ -178,6 +220,18 @@ export default function Home() {
         setGeneratedImages((prev) => [...data.images, ...prev]);
         setSelectedImageIndex(0);
         setStep("RESULT");
+
+        if (saasConfig) {
+          try {
+            await fetch('/api/tool/consume', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: saasConfig.userId, toolId: saasConfig.toolId })
+            });
+          } catch(err) {
+            console.error("Consume api failed", err);
+          }
+        }
       } else {
         throw new Error("生成失败，未返回图片数据");
       }
